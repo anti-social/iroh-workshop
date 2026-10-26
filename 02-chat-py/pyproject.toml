@@ -1,0 +1,11 @@
+[project]
+name = "chat"
+version = "0.1.0"
+description = "One-to-one chat over iroh"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "iroh==1.2.0",
+    "platformdirs>=4.13.5",
+    "textual>=8.2.8",
+]

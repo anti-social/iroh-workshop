@@ -2,6 +2,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -19,7 +20,7 @@ use ratatui::{
         terminal::supports_keyboard_enhancement,
     },
     layout::{Constraint, Layout},
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Wrap},
 };
@@ -142,6 +143,7 @@ struct App {
     peer: EndpointId,
     messages: Vec<Message>,
     input: TextArea<'static>,
+    status: Line<'static>,
 }
 
 impl App {
@@ -157,14 +159,18 @@ impl App {
                 "Connected. Enter: new line, {send_hint}: send, Esc: quit"
             ))],
             input: new_input(),
+            status: Line::from("connecting..."),
         }
     }
 
     fn draw(&self, frame: &mut Frame) {
         let input_height = (self.input.lines().len() as u16 + 2).clamp(3, 10);
-        let [history_area, input_area] =
-            Layout::vertical([Constraint::Min(1), Constraint::Length(input_height)])
-                .areas(frame.area());
+        let [history_area, input_area, status_area] = Layout::vertical([
+            Constraint::Min(1),
+            Constraint::Length(input_height),
+            Constraint::Length(1),
+        ])
+        .areas(frame.area());
 
         let mut text = Text::default();
         for message in &self.messages {
@@ -194,7 +200,32 @@ impl App {
             history_area,
         );
         frame.render_widget(&self.input, input_area);
+        frame.render_widget(&self.status, status_area);
     }
+}
+
+/// Describes the path currently used to send data to the peer.
+fn connection_status(conn: &Connection) -> Line<'static> {
+    let paths = conn.paths();
+    let Some(path) = paths.iter().find(|path| path.is_selected()) else {
+        return Line::from(" no path".dark_gray());
+    };
+    let rtt = path.rtt().as_millis();
+    let (kind, color) = if path.is_ip() {
+        ("DIRECT", Color::Green)
+    } else if path.is_relay() {
+        ("RELAYED", Color::Yellow)
+    } else {
+        ("CUSTOM", Color::Blue)
+    };
+    let other_paths = paths.len() - 1;
+    Line::from(vec![
+        Span::styled(format!(" {kind} "), Style::new().fg(Color::Black).bg(color).bold()),
+        Span::raw(format!(
+            " via {} · rtt {rtt} ms · {other_paths} other path(s)",
+            path.remote_addr()
+        )),
+    ])
 }
 
 fn new_input() -> TextArea<'static> {
@@ -271,12 +302,15 @@ async fn run(
     event_rx: &mut mpsc::Receiver<Event>,
 ) -> Result<()> {
     let mut connected = true;
+    let mut status_tick = tokio::time::interval(Duration::from_secs(1));
     loop {
         terminal.draw(|frame| app.draw(frame))?;
         tokio::select! {
+            _ = status_tick.tick(), if connected => app.status = connection_status(conn),
             Some(text) = incoming_rx.recv() => app.messages.push(Message::Peer(text)),
             reason = conn.closed(), if connected => {
                 connected = false;
+                app.status = Line::from(" DISCONNECTED ".black().on_red().bold());
                 app.messages.push(Message::Info(format!(
                     "Connection closed: {reason}. Press Esc to quit."
                 )));
