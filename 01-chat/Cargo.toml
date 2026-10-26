@@ -1,0 +1,13 @@
+[package]
+name = "chat"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+dirs = "7.0.0"
+iroh = "1.4.1"
+ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }
+tokio = { version = "1.54.1", features = ["full"] }
+tui-textarea = "0.7.0"
